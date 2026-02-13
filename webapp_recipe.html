@@ -160,18 +160,9 @@
                 // Данные передаются в base64 формате, но могут быть URL encoded
                 let decoded;
                 try {
-                    // Сначала пробуем URL decode (на случай если base64 был закодирован через quote)
-                    let urlDecoded = dataParam;
-                    try {
-                        urlDecoded = decodeURIComponent(dataParam);
-                        debugInfo.innerHTML += '<br>✅ URL декодирован';
-                    } catch (e) {
-                        // Если не URL encoded, используем как есть
-                        debugInfo.innerHTML += '<br>⚠️ URL decode не нужен';
-                    }
-                    
                     // Тщательно очищаем base64: убираем все пробелы, переносы строк
-                    let cleanData = urlDecoded.replace(/[\s\n\r\t]/g, '');
+                    // Telegram может добавлять пробелы в URL, их нужно удалить
+                    let cleanData = dataParam.replace(/[\s\n\r\t]/g, '');
                     // Убираем все символы, которые не являются валидными для base64
                     cleanData = cleanData.replace(/[^A-Za-z0-9+/=]/g, '');
                     
@@ -181,8 +172,18 @@
                         cleanData += '='.repeat(4 - padding);
                     }
                     
-                    decoded = atob(cleanData);
-                    debugInfo.innerHTML += '<br>✅ Base64 декодирован, длина: ' + decoded.length;
+                    // Декодируем base64 в бинарные данные
+                    const binaryString = atob(cleanData);
+                    debugInfo.innerHTML += '<br>✅ Base64 декодирован, длина: ' + binaryString.length;
+                    
+                    // Конвертируем бинарную строку в UTF-8
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    // Используем TextDecoder для правильной конвертации UTF-8
+                    const decoder = new TextDecoder('utf-8');
+                    decoded = decoder.decode(bytes);
                     
                     // Проверяем, что декодированные данные похожи на JSON
                     const trimmed = decoded.trim();
@@ -240,7 +241,7 @@
                     throw new Error('Невалидные данные рецепта');
                 }
                 // Для отладки - показываем что данные получены
-                debugInfo.innerHTML += `<br>✅ Данные получены: ${recipeData.name}<br>Ингредиентов: ${recipeData.ingredients.length}`;
+                debugInfo.innerHTML += `<br>✅ Данные получены<br>Ингредиентов: ${recipeData.ingredients.length}`;
                 console.log('Данные рецепта получены:', recipeData.name, 'ингредиентов:', recipeData.ingredients.length);
             } else {
                 // Если данных нет - показываем сообщение

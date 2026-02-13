@@ -71,6 +71,7 @@
             width: 100%;
             height: auto;
             max-width: 100%;
+            background: #000;
             image-rendering: -webkit-optimize-contrast;
             image-rendering: crisp-edges;
         }
@@ -166,8 +167,17 @@
             
             try {
                 // Загружаем статический JSON файл с рецептами
-                const response = await fetch('webapp_recipes.json');
+                // Определяем путь к JSON файлу относительно текущего HTML файла
+                const currentPath = window.location.pathname;
+                const basePath = currentPath.substring(0, currentPath.lastIndexOf('/'));
+                const jsonUrl = basePath + '/webapp_recipes.json';
+                
+                debugInfo.innerHTML += `<br>Загрузка: ${jsonUrl}`;
+                const response = await fetch(jsonUrl);
                 if (!response.ok) {
+                    if (response.status === 404) {
+                        throw new Error(`Файл webapp_recipes.json не найден (404). Убедитесь, что файл загружен на GitHub Pages в ту же папку, что и webapp_recipe.html`);
+                    }
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
                 
@@ -196,8 +206,23 @@
                 
                 // Скрываем загрузку и отрисовываем рецепт
                 document.getElementById('loading').style.display = 'none';
-                renderRecipe();
-                generateWatermark();
+                
+                // Убеждаемся, что контейнер виден
+                const container = document.getElementById('container');
+                if (container) {
+                    container.style.display = 'block';
+                    container.style.visibility = 'visible';
+                }
+                
+                // Отрисовываем рецепт
+                try {
+                    renderRecipe();
+                    generateWatermark();
+                    debugInfo.innerHTML += '<br>✅ Рецепт отрисован';
+                } catch (e) {
+                    debugInfo.innerHTML += `<br>❌ Ошибка отрисовки: ${e.message}`;
+                    console.error('Ошибка отрисовки:', e);
+                }
                 
             } catch (e) {
                 console.error('Ошибка загрузки данных рецепта:', e);
@@ -244,9 +269,12 @@
             const container = document.getElementById('container');
             const maxWidth = Math.min(window.innerWidth - 40, 600);
             
+            // Устанавливаем размеры canvas
             canvas.width = maxWidth;
-            canvas.height = 1;
-
+            // Временно устанавливаем высоту, потом увеличим
+            canvas.height = 2000; // Достаточно большая высота для начала
+            
+            // Очищаем canvas черным фоном
             ctx.fillStyle = '#000';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -347,7 +375,12 @@
             }
             ctx.restore();
 
-            canvas.height = y + padding;
+            // Устанавливаем финальную высоту canvas
+            const finalHeight = y + padding;
+            if (finalHeight > 0) {
+                canvas.height = finalHeight;
+                debugInfo.innerHTML += `<br>Canvas размер: ${canvas.width}x${canvas.height}`;
+            }
         }
 
         function wrapText(ctx, text, maxWidth) {

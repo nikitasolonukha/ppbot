@@ -117,6 +117,7 @@
     </div>
     <div id="error-message">Доступ запрещён</div>
     <div id="loading">Загрузка...</div>
+    <div id="debug-info" style="position:fixed;top:10px;left:10px;background:rgba(255,0,0,0.8);color:#fff;padding:10px;font-size:12px;z-index:10002;max-width:300px;display:none;"></div>
 
     <script>
         // ⚠️ Полная защита от скриншотов невозможна в WebApp. Реализована максимально возможная защита на уровне браузера.
@@ -147,8 +148,14 @@
             instructions: ['Инструкции не загружены']
         };
         
+        // Визуальная отладка
+        const debugInfo = document.getElementById('debug-info');
+        debugInfo.style.display = 'block';
+        
         try {
             const dataParam = urlParams.get('data');
+            debugInfo.innerHTML = `URL длина: ${window.location.href.length}<br>data param: ${dataParam ? 'есть (' + dataParam.length + ' символов)' : 'НЕТ'}`;
+            
             if (dataParam) {
                 const decoded = decodeURIComponent(dataParam);
                 recipeData = JSON.parse(decoded);
@@ -156,13 +163,19 @@
                 if (!recipeData.name || !Array.isArray(recipeData.ingredients)) {
                     throw new Error('Невалидные данные рецепта');
                 }
+                // Для отладки - показываем что данные получены
+                debugInfo.innerHTML += `<br>✅ Данные получены: ${recipeData.name}<br>Ингредиентов: ${recipeData.ingredients.length}`;
+                console.log('Данные рецепта получены:', recipeData.name, 'ингредиентов:', recipeData.ingredients.length);
             } else {
                 // Если данных нет - показываем сообщение
+                debugInfo.innerHTML += '<br>❌ Параметр data отсутствует';
                 document.getElementById('loading').textContent = 'Данные рецепта не переданы';
+                console.error('Параметр data отсутствует в URL');
             }
         } catch (e) {
             console.error('Ошибка парсинга данных рецепта:', e);
-            document.getElementById('loading').textContent = 'Ошибка загрузки данных рецепта';
+            debugInfo.innerHTML += `<br>❌ Ошибка: ${e.message}`;
+            document.getElementById('loading').textContent = 'Ошибка загрузки данных рецепта: ' + e.message;
             // Оставляем дефолтные данные
         }
 
@@ -189,8 +202,15 @@
 
         // Canvas рендеринг рецепта
         function renderRecipe() {
+            console.log('renderRecipe вызвана, recipeData:', recipeData);
             const canvas = document.getElementById('recipe-canvas');
+            if (!canvas) {
+                throw new Error('Canvas не найден');
+            }
             const ctx = canvas.getContext('2d');
+            if (!ctx) {
+                throw new Error('Не удалось получить контекст canvas');
+            }
             const container = document.getElementById('container');
             const maxWidth = Math.min(window.innerWidth - 40, 600);
             
@@ -415,9 +435,14 @@
 
         // Инициализация
         window.addEventListener('load', () => {
-            generateWatermark();
-            renderRecipe();
-            document.getElementById('loading').style.display = 'none';
+            try {
+                generateWatermark();
+                renderRecipe();
+                document.getElementById('loading').style.display = 'none';
+            } catch (e) {
+                console.error('Ошибка при инициализации:', e);
+                document.getElementById('loading').textContent = 'Ошибка: ' + e.message;
+            }
         });
 
         window.addEventListener('resize', () => {

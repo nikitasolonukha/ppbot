@@ -41,6 +41,11 @@
             opacity: 0.08;
             overflow: hidden;
         }
+        
+        /* Убеждаемся, что container выше watermark */
+        #container {
+            z-index: 9999 !important;
+        }
 
         .watermark-text {
             position: absolute;
@@ -57,6 +62,9 @@
             padding: 20px;
             max-width: 100%;
             min-height: 100vh;
+            display: block;
+            visibility: visible;
+            background: #000;
         }
 
         #canvas-container {
@@ -67,13 +75,16 @@
         }
 
         #recipe-canvas {
-            display: block;
+            display: block !important;
             width: 100%;
             height: auto;
             max-width: 100%;
-            background: #000;
+            background: #000 !important;
+            visibility: visible !important;
+            opacity: 1 !important;
             image-rendering: -webkit-optimize-contrast;
             image-rendering: crisp-edges;
+            margin: 0 auto;
         }
 
         #error-message {
@@ -207,20 +218,37 @@
                 // Скрываем загрузку и отрисовываем рецепт
                 document.getElementById('loading').style.display = 'none';
                 
-                // Убеждаемся, что контейнер виден
+                // Убеждаемся, что контейнер и canvas видимы
                 const container = document.getElementById('container');
+                const canvas = document.getElementById('recipe-canvas');
+                
                 if (container) {
                     container.style.display = 'block';
                     container.style.visibility = 'visible';
+                    container.style.opacity = '1';
+                }
+                
+                if (canvas) {
+                    canvas.style.display = 'block';
+                    canvas.style.visibility = 'visible';
+                    canvas.style.opacity = '1';
                 }
                 
                 // Отрисовываем рецепт
                 try {
                     renderRecipe();
                     generateWatermark();
-                    debugInfo.innerHTML += '<br>✅ Рецепт отрисован';
+                    
+                    // Проверяем, что canvas отрисован
+                    const canvasAfter = document.getElementById('recipe-canvas');
+                    if (canvasAfter && canvasAfter.height > 0) {
+                        debugInfo.innerHTML += `<br>✅ Рецепт отрисован (canvas: ${canvasAfter.width}x${canvasAfter.height})`;
+                    } else {
+                        debugInfo.innerHTML += '<br>⚠️ Canvas не отрисован (высота = 0)';
+                    }
                 } catch (e) {
                     debugInfo.innerHTML += `<br>❌ Ошибка отрисовки: ${e.message}`;
+                    debugInfo.innerHTML += `<br>Stack: ${e.stack}`;
                     console.error('Ошибка отрисовки:', e);
                 }
                 
@@ -262,11 +290,25 @@
             if (!canvas) {
                 throw new Error('Canvas не найден');
             }
+            
+            // Принудительно делаем canvas видимым
+            canvas.style.display = 'block';
+            canvas.style.visibility = 'visible';
+            canvas.style.opacity = '1';
+            canvas.style.position = 'relative';
+            canvas.style.zIndex = '10';
+            
             const ctx = canvas.getContext('2d');
             if (!ctx) {
                 throw new Error('Не удалось получить контекст canvas');
             }
+            
             const container = document.getElementById('container');
+            if (container) {
+                container.style.display = 'block';
+                container.style.visibility = 'visible';
+            }
+            
             const maxWidth = Math.min(window.innerWidth - 40, 600);
             
             // Устанавливаем размеры canvas
@@ -277,6 +319,8 @@
             // Очищаем canvas черным фоном
             ctx.fillStyle = '#000';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            debugInfo.innerHTML += `<br>Canvas инициализирован: ${canvas.width}x${canvas.height}`;
 
             ctx.fillStyle = '#fff';
             ctx.font = 'bold 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
@@ -379,8 +423,15 @@
             const finalHeight = y + padding;
             if (finalHeight > 0) {
                 canvas.height = finalHeight;
-                debugInfo.innerHTML += `<br>Canvas размер: ${canvas.width}x${canvas.height}`;
+                debugInfo.innerHTML += `<br>Canvas финальный размер: ${canvas.width}x${canvas.height}`;
+            } else {
+                debugInfo.innerHTML += '<br>⚠️ Финальная высота = 0, y=' + y;
             }
+            
+            // Проверяем, что canvas действительно отрисован
+            const imageData = ctx.getImageData(0, 0, Math.min(10, canvas.width), Math.min(10, canvas.height));
+            const hasContent = imageData.data.some((val, idx) => idx % 4 !== 3 && val !== 0); // Проверяем не-прозрачные пиксели
+            debugInfo.innerHTML += `<br>Canvas имеет контент: ${hasContent ? 'да' : 'нет'}`;
         }
 
         function wrapText(ctx, text, maxWidth) {

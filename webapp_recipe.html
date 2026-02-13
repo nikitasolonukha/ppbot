@@ -138,6 +138,8 @@
 
         // Получение данных рецепта из initData или URL
         const urlParams = new URLSearchParams(window.location.search);
+        const recipeId = urlParams.get('id');
+        
         let recipeData = {
             name: 'Рецепт',
             calories: 0,
@@ -152,109 +154,60 @@
         const debugInfo = document.getElementById('debug-info');
         debugInfo.style.display = 'block';
         
-        try {
-            const dataParam = urlParams.get('data');
-            debugInfo.innerHTML = `URL длина: ${window.location.href.length}<br>data param: ${dataParam ? 'есть (' + dataParam.length + ' символов)' : 'НЕТ'}`;
+        // Загружаем данные рецепта по ID из статического JSON файла
+        async function loadRecipeData() {
+            if (!recipeId) {
+                debugInfo.innerHTML = '❌ ID рецепта не указан в URL';
+                document.getElementById('loading').textContent = 'ID рецепта не указан';
+                return;
+            }
             
-            if (dataParam) {
-                // Данные передаются в base64 формате, но могут быть URL encoded
-                let decoded;
-                try {
-                    // Тщательно очищаем base64: убираем все пробелы, переносы строк
-                    // Telegram может добавлять пробелы в URL, их нужно удалить
-                    let cleanData = dataParam.replace(/[\s\n\r\t]/g, '');
-                    // Убираем все символы, которые не являются валидными для base64
-                    cleanData = cleanData.replace(/[^A-Za-z0-9+/=]/g, '');
-                    
-                    // Проверяем, что строка не пустая и имеет правильную длину (кратна 4 для base64)
-                    const padding = cleanData.length % 4;
-                    if (padding !== 0) {
-                        cleanData += '='.repeat(4 - padding);
-                    }
-                    
-                    // Декодируем base64 в бинарные данные
-                    const binaryString = atob(cleanData);
-                    debugInfo.innerHTML += '<br>✅ Base64 декодирован, длина: ' + binaryString.length;
-                    
-                    // Конвертируем бинарную строку в UTF-8
-                    const bytes = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {
-                        bytes[i] = binaryString.charCodeAt(i);
-                    }
-                    // Используем TextDecoder для правильной конвертации UTF-8
-                    const decoder = new TextDecoder('utf-8');
-                    decoded = decoder.decode(bytes);
-                    
-                    // Проверяем, что декодированные данные похожи на JSON
-                    const trimmed = decoded.trim();
-                    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
-                        debugInfo.innerHTML += '<br>⚠️ Декодированные данные не JSON, начало: ' + trimmed.substring(0, 50);
-                        throw new Error('Декодированные данные не являются JSON');
-                    }
-                } catch (e) {
-                    debugInfo.innerHTML += `<br>❌ Base64 ошибка: ${e.message}`;
-                    throw new Error('Не удалось декодировать base64: ' + e.message);
+            debugInfo.innerHTML = `ID рецепта: ${recipeId}<br>Загрузка данных...`;
+            
+            try {
+                // Загружаем статический JSON файл с рецептами
+                const response = await fetch('webapp_recipes.json');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
                 
-                // Парсим JSON (поддерживаем компактный формат с короткими ключами)
-                try {
-                    const parsed = JSON.parse(decoded);
-                    // Конвертируем компактный формат в полный
-                    recipeData = {
-                        name: parsed.n || parsed.name || 'Рецепт',
-                        calories: parsed.c !== undefined ? parsed.c : (parsed.calories || 0),
-                        proteins: parsed.p !== undefined ? parsed.p : (parsed.proteins || 0),
-                        fats: parsed.f !== undefined ? parsed.f : (parsed.fats || 0),
-                        carbs: parsed.cb !== undefined ? parsed.cb : (parsed.carbs || 0),
-                        ingredients: parsed.i || parsed.ingredients || [],
-                        instructions: parsed.ins || parsed.instructions || []
-                    };
-                    debugInfo.innerHTML += '<br>✅ JSON распарсен';
-                } catch (e) {
-                    debugInfo.innerHTML += `<br>❌ Ошибка парсинга JSON: ${e.message}`;
-                    debugInfo.innerHTML += `<br>Начало данных: ${decoded.substring(0, 100)}`;
-                    debugInfo.innerHTML += `<br>Конец данных: ${decoded.substring(decoded.length - 50)}`;
-                    // Пробуем исправить обрезанный JSON (добавляем закрывающие скобки)
-                    try {
-                        let fixed = decoded.trim();
-                        if (!fixed.endsWith('}')) {
-                            // Пробуем добавить закрывающие скобки
-                            const openBraces = (fixed.match(/\{/g) || []).length;
-                            const closeBraces = (fixed.match(/\}/g) || []).length;
-                            const missing = openBraces - closeBraces;
-                            if (missing > 0) {
-                                fixed += '}'.repeat(missing);
-                                debugInfo.innerHTML += '<br>⚠️ Попытка исправить обрезанный JSON';
-                                recipeData = JSON.parse(fixed);
-                            } else {
-                                throw e;
-                            }
-                        } else {
-                            throw e;
-                        }
-                    } catch (e2) {
-                        throw new Error('Ошибка парсинга JSON: ' + e.message);
-                    }
+                const allRecipes = await response.json();
+                debugInfo.innerHTML += '<br>✅ JSON файл загружен';
+                
+                // Ищем рецепт по ID
+                const recipe = allRecipes[recipeId];
+                if (!recipe) {
+                    throw new Error(`Рецепт с ID "${recipeId}" не найден`);
                 }
-                // Проверяем, что данные валидны
-                if (!recipeData.name || !Array.isArray(recipeData.ingredients)) {
-                    throw new Error('Невалидные данные рецепта');
-                }
-                // Для отладки - показываем что данные получены
-                debugInfo.innerHTML += `<br>✅ Данные получены<br>Ингредиентов: ${recipeData.ingredients.length}`;
-                console.log('Данные рецепта получены:', recipeData.name, 'ингредиентов:', recipeData.ingredients.length);
-            } else {
-                // Если данных нет - показываем сообщение
-                debugInfo.innerHTML += '<br>❌ Параметр data отсутствует';
-                document.getElementById('loading').textContent = 'Данные рецепта не переданы';
-                console.error('Параметр data отсутствует в URL');
+                
+                // Конвертируем компактный формат в полный
+                recipeData = {
+                    name: recipe.n || recipe.name || 'Рецепт',
+                    calories: recipe.c !== undefined ? recipe.c : (recipe.calories || 0),
+                    proteins: recipe.p !== undefined ? recipe.p : (recipe.proteins || 0),
+                    fats: recipe.f !== undefined ? recipe.f : (recipe.fats || 0),
+                    carbs: recipe.cb !== undefined ? recipe.cb : (recipe.carbs || 0),
+                    ingredients: recipe.i || recipe.ingredients || [],
+                    instructions: recipe.ins || recipe.instructions || []
+                };
+                
+                debugInfo.innerHTML += `<br>✅ Рецепт найден: ${recipeData.name}<br>Ингредиентов: ${recipeData.ingredients.length}`;
+                console.log('Данные рецепта загружены:', recipeData.name);
+                
+                // Скрываем загрузку и отрисовываем рецепт
+                document.getElementById('loading').style.display = 'none';
+                renderRecipe();
+                generateWatermark();
+                
+            } catch (e) {
+                console.error('Ошибка загрузки данных рецепта:', e);
+                debugInfo.innerHTML += `<br>❌ Ошибка: ${e.message}`;
+                document.getElementById('loading').textContent = 'Ошибка загрузки данных рецепта: ' + e.message;
             }
-        } catch (e) {
-            console.error('Ошибка парсинга данных рецепта:', e);
-            debugInfo.innerHTML += `<br>❌ Ошибка: ${e.message}`;
-            document.getElementById('loading').textContent = 'Ошибка загрузки данных рецепта: ' + e.message;
-            // Оставляем дефолтные данные
         }
+        
+        // Запускаем загрузку данных рецепта
+        loadRecipeData();
 
         // Watermark генерация
         function generateWatermark() {
@@ -510,21 +463,12 @@
             e.returnValue = '';
         });
 
-        // Инициализация
-        window.addEventListener('load', () => {
-            try {
+        // Обработчик изменения размера окна - перерисовываем рецепт
+        window.addEventListener('resize', () => {
+            if (recipeData && recipeData.name !== 'Рецепт') {
                 generateWatermark();
                 renderRecipe();
-                document.getElementById('loading').style.display = 'none';
-            } catch (e) {
-                console.error('Ошибка при инициализации:', e);
-                document.getElementById('loading').textContent = 'Ошибка: ' + e.message;
             }
-        });
-
-        window.addEventListener('resize', () => {
-            generateWatermark();
-            renderRecipe();
         });
 
         // Дополнительная защита от инспектирования

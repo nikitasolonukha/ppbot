@@ -157,29 +157,42 @@
             debugInfo.innerHTML = `URL длина: ${window.location.href.length}<br>data param: ${dataParam ? 'есть (' + dataParam.length + ' символов)' : 'НЕТ'}`;
             
             if (dataParam) {
-                // Данные передаются в base64 формате
+                // Данные передаются в base64 формате, но могут быть URL encoded
                 let decoded;
                 try {
-                    // Пробуем декодировать base64
-                    // Убираем возможные пробелы и спецсимволы, которые могли добавиться при передаче
-                    const cleanData = dataParam.replace(/\s/g, '').replace(/[^A-Za-z0-9+/=]/g, '');
+                    // Сначала пробуем URL decode (на случай если base64 был закодирован через quote)
+                    let urlDecoded = dataParam;
+                    try {
+                        urlDecoded = decodeURIComponent(dataParam);
+                        debugInfo.innerHTML += '<br>✅ URL декодирован';
+                    } catch (e) {
+                        // Если не URL encoded, используем как есть
+                        debugInfo.innerHTML += '<br>⚠️ URL decode не нужен';
+                    }
+                    
+                    // Тщательно очищаем base64: убираем все пробелы, переносы строк
+                    let cleanData = urlDecoded.replace(/[\s\n\r\t]/g, '');
+                    // Убираем все символы, которые не являются валидными для base64
+                    cleanData = cleanData.replace(/[^A-Za-z0-9+/=]/g, '');
+                    
+                    // Проверяем, что строка не пустая и имеет правильную длину (кратна 4 для base64)
+                    const padding = cleanData.length % 4;
+                    if (padding !== 0) {
+                        cleanData += '='.repeat(4 - padding);
+                    }
+                    
                     decoded = atob(cleanData);
                     debugInfo.innerHTML += '<br>✅ Base64 декодирован, длина: ' + decoded.length;
                     
                     // Проверяем, что декодированные данные похожи на JSON
-                    if (!decoded.trim().startsWith('{')) {
+                    const trimmed = decoded.trim();
+                    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+                        debugInfo.innerHTML += '<br>⚠️ Декодированные данные не JSON, начало: ' + trimmed.substring(0, 50);
                         throw new Error('Декодированные данные не являются JSON');
                     }
                 } catch (e) {
-                    debugInfo.innerHTML += `<br>⚠️ Base64 ошибка: ${e.message}`;
-                    // Если не base64, пробуем обычный URL decode (для обратной совместимости)
-                    try {
-                        decoded = decodeURIComponent(dataParam);
-                        debugInfo.innerHTML += '<br>⚠️ Использован URL decode';
-                    } catch (e2) {
-                        debugInfo.innerHTML += `<br>❌ Ошибка декодирования: ${e2.message}`;
-                        throw new Error('Не удалось декодировать данные: ' + e2.message);
-                    }
+                    debugInfo.innerHTML += `<br>❌ Base64 ошибка: ${e.message}`;
+                    throw new Error('Не удалось декодировать base64: ' + e.message);
                 }
                 
                 // Парсим JSON (поддерживаем компактный формат с короткими ключами)

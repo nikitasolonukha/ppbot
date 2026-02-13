@@ -169,8 +169,13 @@
         const debugInfo = document.getElementById('debug-info');
         debugInfo.style.display = 'block';
         
+        // Флаг для предотвращения множественных вызовов
+        let dataLoaded = false;
+        let isRendering = false;
+        
         // Загружаем данные рецепта по ID из статического JSON файла
         async function loadRecipeData() {
+            if (dataLoaded) return; // Предотвращаем повторную загрузку
             if (!recipeId) {
                 debugInfo.innerHTML = '❌ ID рецепта не указан в URL';
                 document.getElementById('loading').textContent = 'ID рецепта не указан';
@@ -181,22 +186,20 @@
             
             try {
                 // Загружаем статический JSON файл с рецептами
-                // Определяем путь к JSON файлу относительно текущего HTML файла
                 const currentPath = window.location.pathname;
                 const basePath = currentPath.substring(0, currentPath.lastIndexOf('/'));
                 const jsonUrl = basePath + '/webapp_recipes.json';
                 
-                debugInfo.innerHTML += `<br>Загрузка: ${jsonUrl}`;
                 const response = await fetch(jsonUrl);
                 if (!response.ok) {
                     if (response.status === 404) {
-                        throw new Error(`Файл webapp_recipes.json не найден (404). Убедитесь, что файл загружен на GitHub Pages в ту же папку, что и webapp_recipe.html`);
+                        throw new Error(`Файл webapp_recipes.json не найден (404)`);
                     }
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
                 
                 const allRecipes = await response.json();
-                debugInfo.innerHTML += '<br>✅ JSON файл загружен';
+                debugInfo.innerHTML += '<br>✅ JSON загружен';
                 
                 // Ищем рецепт по ID
                 const recipe = allRecipes[recipeId];
@@ -215,13 +218,12 @@
                     instructions: recipe.ins || recipe.instructions || []
                 };
                 
-                debugInfo.innerHTML += `<br>✅ Рецепт найден: ${recipeData.name}<br>Ингредиентов: ${recipeData.ingredients.length}`;
-                console.log('Данные рецепта загружены:', recipeData.name);
+                debugInfo.innerHTML += `<br>✅ Рецепт: ${recipeData.name}`;
                 
-                // Скрываем загрузку и отрисовываем рецепт
+                // Скрываем загрузку
                 document.getElementById('loading').style.display = 'none';
                 
-                // Убеждаемся, что контейнер и canvas видимы
+                // Делаем контейнер и canvas видимыми
                 const container = document.getElementById('container');
                 const canvas = document.getElementById('recipe-canvas');
                 
@@ -237,28 +239,17 @@
                     canvas.style.opacity = '1';
                 }
                 
-                // Отрисовываем рецепт
-                try {
-                    renderRecipe();
-                    generateWatermark();
-                    
-                    // Проверяем, что canvas отрисован
-                    const canvasAfter = document.getElementById('recipe-canvas');
-                    if (canvasAfter && canvasAfter.height > 0) {
-                        debugInfo.innerHTML += `<br>✅ Рецепт отрисован (canvas: ${canvasAfter.width}x${canvasAfter.height})`;
-                    } else {
-                        debugInfo.innerHTML += '<br>⚠️ Canvas не отрисован (высота = 0)';
-                    }
-                } catch (e) {
-                    debugInfo.innerHTML += `<br>❌ Ошибка отрисовки: ${e.message}`;
-                    debugInfo.innerHTML += `<br>Stack: ${e.stack}`;
-                    console.error('Ошибка отрисовки:', e);
-                }
+                // Отрисовываем рецепт ОДИН РАЗ
+                renderRecipe();
+                generateWatermark();
+                
+                dataLoaded = true;
+                debugInfo.innerHTML += '<br>✅ Готово';
                 
             } catch (e) {
                 console.error('Ошибка загрузки данных рецепта:', e);
                 debugInfo.innerHTML += `<br>❌ Ошибка: ${e.message}`;
-                document.getElementById('loading').textContent = 'Ошибка загрузки данных рецепта: ' + e.message;
+                document.getElementById('loading').textContent = 'Ошибка: ' + e.message;
             }
         }
         
@@ -329,8 +320,6 @@
             // Очищаем canvas черным фоном
             ctx.fillStyle = '#000';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            
-            debugInfo.innerHTML += `<br>Canvas инициализирован: ${canvas.width}x${canvas.height}`;
 
             ctx.fillStyle = '#fff';
             ctx.font = 'bold 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
@@ -433,27 +422,7 @@
             const finalHeight = y + padding;
             if (finalHeight > 0) {
                 canvas.height = finalHeight;
-                debugInfo.innerHTML += `<br>Canvas финальный размер: ${canvas.width}x${canvas.height}`;
-            } else {
-                debugInfo.innerHTML += '<br>⚠️ Финальная высота = 0, y=' + y;
             }
-            
-            // Проверяем, что canvas действительно отрисован (проверяем белые пиксели, не черные)
-            const sampleWidth = Math.min(50, canvas.width);
-            const sampleHeight = Math.min(100, canvas.height);
-            const imageData = ctx.getImageData(0, 0, sampleWidth, sampleHeight);
-            let whitePixels = 0;
-            for (let i = 0; i < imageData.data.length; i += 4) {
-                const r = imageData.data[i];
-                const g = imageData.data[i + 1];
-                const b = imageData.data[i + 2];
-                // Проверяем белые или светлые пиксели (RGB > 200)
-                if (r > 200 && g > 200 && b > 200) {
-                    whitePixels++;
-                }
-            }
-            const hasContent = whitePixels > 10; // Должно быть хотя бы 10 белых пикселей
-            debugInfo.innerHTML += `<br>Canvas белых пикселей: ${whitePixels}, имеет контент: ${hasContent ? 'да' : 'нет'}`;
             
             // Принудительно показываем canvas
             canvas.style.display = 'block';
@@ -576,20 +545,14 @@
             e.returnValue = '';
         });
 
-        // Флаг для предотвращения множественных вызовов renderRecipe
-        let isRendering = false;
-        
-        // Обработчик изменения размера окна - перерисовываем рецепт
+        // Обработчик изменения размера окна - только watermark
         let resizeTimeout;
         window.addEventListener('resize', () => {
-            if (recipeData && recipeData.name !== 'Рецепт' && !isRendering) {
+            if (dataLoaded) {
                 clearTimeout(resizeTimeout);
                 resizeTimeout = setTimeout(() => {
-                    isRendering = true;
                     generateWatermark();
-                    renderRecipe();
-                    isRendering = false;
-                }, 300); // Debounce resize
+                }, 300);
             }
         });
 

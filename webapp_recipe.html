@@ -38,7 +38,7 @@
             height: 100%;
             pointer-events: none;
             z-index: 9998;
-            opacity: 0.08;
+            opacity: 0.12;
             overflow: hidden;
         }
         
@@ -49,11 +49,12 @@
 
         .watermark-text {
             position: absolute;
-            color: #fff;
-            font-size: 14px;
+            color: rgba(255, 255, 255, 0.15);
+            font-size: 16px;
             transform: rotate(25deg);
             white-space: nowrap;
-            font-weight: 300;
+            font-weight: 400;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
         }
 
         #container {
@@ -165,9 +166,13 @@
             instructions: ['Инструкции не загружены']
         };
         
-        // Визуальная отладка
+        // Визуальная отладка (можно скрыть после тестирования)
         const debugInfo = document.getElementById('debug-info');
         debugInfo.style.display = 'block';
+        // Скрыть debug через 5 секунд после загрузки
+        setTimeout(() => {
+            debugInfo.style.display = 'none';
+        }, 5000);
         
         // Флаг для предотвращения множественных вызовов
         let dataLoaded = false;
@@ -239,9 +244,15 @@
                     canvas.style.opacity = '1';
                 }
                 
-                // Отрисовываем рецепт ОДИН РАЗ
-                renderRecipe();
-                generateWatermark();
+                // Убеждаемся, что данные загружены перед отрисовкой
+                if (recipeData && recipeData.name !== 'Рецепт') {
+                    // Небольшая задержка для гарантии, что DOM готов
+                    setTimeout(() => {
+                        renderRecipe();
+                        generateWatermark();
+                        debugInfo.innerHTML += '<br>✅ Рецепт отрисован';
+                    }, 100);
+                }
                 
                 dataLoaded = true;
                 debugInfo.innerHTML += '<br>✅ Готово';
@@ -279,17 +290,16 @@
 
         // Canvas рендеринг рецепта
         function renderRecipe() {
-            // Предотвращаем множественные вызовы
-            if (isRendering) {
+            // Предотвращаем множественные вызовы и проверяем данные
+            if (isRendering || !recipeData || recipeData.name === 'Рецепт') {
                 return;
             }
             isRendering = true;
             
-            console.log('renderRecipe вызвана, recipeData:', recipeData);
             const canvas = document.getElementById('recipe-canvas');
             if (!canvas) {
                 isRendering = false;
-                throw new Error('Canvas не найден');
+                return;
             }
             
             // Принудительно делаем canvas видимым
@@ -297,25 +307,26 @@
             canvas.style.visibility = 'visible';
             canvas.style.opacity = '1';
             canvas.style.position = 'relative';
-            canvas.style.zIndex = '10';
+            canvas.style.zIndex = '10000';
             
             const ctx = canvas.getContext('2d');
             if (!ctx) {
-                throw new Error('Не удалось получить контекст canvas');
+                isRendering = false;
+                return;
             }
             
             const container = document.getElementById('container');
             if (container) {
                 container.style.display = 'block';
                 container.style.visibility = 'visible';
+                container.style.opacity = '1';
             }
             
             const maxWidth = Math.min(window.innerWidth - 40, 600);
             
             // Устанавливаем размеры canvas
             canvas.width = maxWidth;
-            // Временно устанавливаем высоту, потом увеличим
-            canvas.height = 2000; // Достаточно большая высота для начала
+            canvas.height = 3000; // Большая высота для начала
             
             // Очищаем canvas черным фоном
             ctx.fillStyle = '#000';
@@ -403,31 +414,43 @@
                 y += 8;
             });
 
-            // Watermark на canvas
+            // Watermark на canvas (более заметный)
             ctx.save();
-            ctx.globalAlpha = 0.05;
+            ctx.globalAlpha = 0.08;
             ctx.fillStyle = '#fff';
-            ctx.font = '12px -apple-system';
+            ctx.font = '14px -apple-system';
             ctx.rotate(25 * Math.PI / 180);
             const watermarkCanvas = `${username} | ${userId} | ${currentTime}`;
-            const watermarkSpacing = 150;
-            for (let i = -2; i < 10; i++) {
-                for (let j = -2; j < 10; j++) {
+            const watermarkSpacing = 180;
+            // Рисуем watermark по всему canvas
+            const watermarkRows = Math.ceil(canvas.height / watermarkSpacing) + 2;
+            const watermarkCols = Math.ceil(canvas.width / watermarkSpacing) + 2;
+            for (let i = -1; i < watermarkRows; i++) {
+                for (let j = -1; j < watermarkCols; j++) {
                     ctx.fillText(watermarkCanvas, j * watermarkSpacing, i * watermarkSpacing);
                 }
             }
             ctx.restore();
 
             // Устанавливаем финальную высоту canvas
-            const finalHeight = y + padding;
+            const finalHeight = y + padding + 50; // Добавляем отступ снизу
             if (finalHeight > 0) {
                 canvas.height = finalHeight;
             }
             
-            // Принудительно показываем canvas
+            // Принудительно показываем canvas и делаем его видимым
             canvas.style.display = 'block';
             canvas.style.visibility = 'visible';
             canvas.style.opacity = '1';
+            canvas.style.width = maxWidth + 'px';
+            canvas.style.height = finalHeight + 'px';
+            
+            // Убеждаемся, что контейнер виден и прокручивается
+            if (container) {
+                container.style.display = 'block';
+                container.style.visibility = 'visible';
+                container.style.opacity = '1';
+            }
             
             isRendering = false;
         }

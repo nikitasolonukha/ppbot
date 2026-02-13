@@ -137,7 +137,7 @@
 
         // Получение данных рецепта из initData или URL
         const urlParams = new URLSearchParams(window.location.search);
-        const recipeData = urlParams.get('data') ? JSON.parse(decodeURIComponent(urlParams.get('data'))) : {
+        let recipeData = {
             name: 'Рецепт',
             calories: 0,
             proteins: 0,
@@ -146,6 +146,25 @@
             ingredients: ['Ингредиенты не загружены'],
             instructions: ['Инструкции не загружены']
         };
+        
+        try {
+            const dataParam = urlParams.get('data');
+            if (dataParam) {
+                const decoded = decodeURIComponent(dataParam);
+                recipeData = JSON.parse(decoded);
+                // Проверяем, что данные валидны
+                if (!recipeData.name || !Array.isArray(recipeData.ingredients)) {
+                    throw new Error('Невалидные данные рецепта');
+                }
+            } else {
+                // Если данных нет - показываем сообщение
+                document.getElementById('loading').textContent = 'Данные рецепта не переданы';
+            }
+        } catch (e) {
+            console.error('Ошибка парсинга данных рецепта:', e);
+            document.getElementById('loading').textContent = 'Ошибка загрузки данных рецепта';
+            // Оставляем дефолтные данные
+        }
 
         // Watermark генерация
         function generateWatermark() {
@@ -223,9 +242,15 @@
             y += lineHeight + 10;
 
             ctx.font = '18px -apple-system';
-            const ingredients = Array.isArray(recipeData.ingredients) ? recipeData.ingredients : [recipeData.ingredients];
+            const ingredients = Array.isArray(recipeData.ingredients) 
+                ? recipeData.ingredients.filter(ing => ing && ing.trim()) 
+                : [recipeData.ingredients].filter(ing => ing && ing.trim());
+            if (ingredients.length === 0) {
+                ingredients.push('Ингредиенты не указаны');
+            }
             ingredients.forEach(ing => {
-                const lines = wrapText(ctx, `• ${ing}`, maxWidth - padding * 2);
+                const ingText = typeof ing === 'string' ? ing : String(ing);
+                const lines = wrapText(ctx, `• ${ingText}`, maxWidth - padding * 2);
                 lines.forEach(line => {
                     ctx.fillText(line, padding + 10, y);
                     y += lineHeight;
@@ -240,9 +265,15 @@
             y += lineHeight + 10;
 
             ctx.font = '18px -apple-system';
-            const instructions = Array.isArray(recipeData.instructions) ? recipeData.instructions : [recipeData.instructions];
+            const instructions = Array.isArray(recipeData.instructions) 
+                ? recipeData.instructions.filter(inst => inst && inst.trim()) 
+                : [recipeData.instructions].filter(inst => inst && inst.trim());
+            if (instructions.length === 0) {
+                instructions.push('Инструкции не указаны');
+            }
             instructions.forEach((inst, idx) => {
-                const text = `${idx + 1}. ${inst}`;
+                const instText = typeof inst === 'string' ? inst : String(inst);
+                const text = `${idx + 1}. ${instText}`;
                 const lines = wrapText(ctx, text, maxWidth - padding * 2);
                 lines.forEach(line => {
                     ctx.fillText(line, padding, y);

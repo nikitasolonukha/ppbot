@@ -58,13 +58,14 @@
 
         #container {
             position: relative;
-            z-index: 1;
+            z-index: 9999 !important;
             padding: 20px;
             max-width: 100%;
             min-height: 100vh;
-            display: block;
-            visibility: visible;
+            display: block !important;
+            visibility: visible !important;
             background: #000;
+            overflow-y: auto;
         }
 
         #canvas-container {
@@ -76,15 +77,17 @@
 
         #recipe-canvas {
             display: block !important;
-            width: 100%;
-            height: auto;
-            max-width: 100%;
+            width: 100% !important;
+            height: auto !important;
+            max-width: 100% !important;
             background: #000 !important;
             visibility: visible !important;
             opacity: 1 !important;
             image-rendering: -webkit-optimize-contrast;
             image-rendering: crisp-edges;
             margin: 0 auto;
+            position: relative;
+            z-index: 10000 !important;
         }
 
         #error-message {
@@ -285,9 +288,16 @@
 
         // Canvas рендеринг рецепта
         function renderRecipe() {
+            // Предотвращаем множественные вызовы
+            if (isRendering) {
+                return;
+            }
+            isRendering = true;
+            
             console.log('renderRecipe вызвана, recipeData:', recipeData);
             const canvas = document.getElementById('recipe-canvas');
             if (!canvas) {
+                isRendering = false;
                 throw new Error('Canvas не найден');
             }
             
@@ -428,10 +438,29 @@
                 debugInfo.innerHTML += '<br>⚠️ Финальная высота = 0, y=' + y;
             }
             
-            // Проверяем, что canvas действительно отрисован
-            const imageData = ctx.getImageData(0, 0, Math.min(10, canvas.width), Math.min(10, canvas.height));
-            const hasContent = imageData.data.some((val, idx) => idx % 4 !== 3 && val !== 0); // Проверяем не-прозрачные пиксели
-            debugInfo.innerHTML += `<br>Canvas имеет контент: ${hasContent ? 'да' : 'нет'}`;
+            // Проверяем, что canvas действительно отрисован (проверяем белые пиксели, не черные)
+            const sampleWidth = Math.min(50, canvas.width);
+            const sampleHeight = Math.min(100, canvas.height);
+            const imageData = ctx.getImageData(0, 0, sampleWidth, sampleHeight);
+            let whitePixels = 0;
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                const r = imageData.data[i];
+                const g = imageData.data[i + 1];
+                const b = imageData.data[i + 2];
+                // Проверяем белые или светлые пиксели (RGB > 200)
+                if (r > 200 && g > 200 && b > 200) {
+                    whitePixels++;
+                }
+            }
+            const hasContent = whitePixels > 10; // Должно быть хотя бы 10 белых пикселей
+            debugInfo.innerHTML += `<br>Canvas белых пикселей: ${whitePixels}, имеет контент: ${hasContent ? 'да' : 'нет'}`;
+            
+            // Принудительно показываем canvas
+            canvas.style.display = 'block';
+            canvas.style.visibility = 'visible';
+            canvas.style.opacity = '1';
+            
+            isRendering = false;
         }
 
         function wrapText(ctx, text, maxWidth) {
@@ -547,11 +576,20 @@
             e.returnValue = '';
         });
 
+        // Флаг для предотвращения множественных вызовов renderRecipe
+        let isRendering = false;
+        
         // Обработчик изменения размера окна - перерисовываем рецепт
+        let resizeTimeout;
         window.addEventListener('resize', () => {
-            if (recipeData && recipeData.name !== 'Рецепт') {
-                generateWatermark();
-                renderRecipe();
+            if (recipeData && recipeData.name !== 'Рецепт' && !isRendering) {
+                clearTimeout(resizeTimeout);
+                resizeTimeout = setTimeout(() => {
+                    isRendering = true;
+                    generateWatermark();
+                    renderRecipe();
+                    isRendering = false;
+                }, 300); // Debounce resize
             }
         });
 

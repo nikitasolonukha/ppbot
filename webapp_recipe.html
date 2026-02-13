@@ -157,7 +157,17 @@
             debugInfo.innerHTML = `URL длина: ${window.location.href.length}<br>data param: ${dataParam ? 'есть (' + dataParam.length + ' символов)' : 'НЕТ'}`;
             
             if (dataParam) {
-                const decoded = decodeURIComponent(dataParam);
+                // Данные передаются в base64 формате
+                let decoded;
+                try {
+                    // Пробуем декодировать base64
+                    decoded = atob(dataParam);
+                    debugInfo.innerHTML += '<br>✅ Base64 декодирован';
+                } catch (e) {
+                    // Если не base64, пробуем обычный URL decode (для обратной совместимости)
+                    decoded = decodeURIComponent(dataParam);
+                    debugInfo.innerHTML += '<br>⚠️ Использован URL decode';
+                }
                 recipeData = JSON.parse(decoded);
                 // Проверяем, что данные валидны
                 if (!recipeData.name || !Array.isArray(recipeData.ingredients)) {

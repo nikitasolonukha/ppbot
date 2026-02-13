@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <title>Рецепт</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
+            user-select: none;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+        }
+
+        body {
+            background: #000;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            overflow-x: hidden;
+            position: relative;
+            min-height: 100vh;
+            touch-action: none;
+        }
+
+        #watermark-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 9998;
+            opacity: 0.08;
+            overflow: hidden;
+        }
+
+        .watermark-text {
+            position: absolute;
+            color: #fff;
+            font-size: 14px;
+            transform: rotate(25deg);
+            white-space: nowrap;
+            font-weight: 300;
+        }
+
+        #container {
+            position: relative;
+            z-index: 1;
+            padding: 20px;
+            max-width: 100%;
+            min-height: 100vh;
+        }
+
+        #canvas-container {
+            position: relative;
+            width: 100%;
+            margin: 0 auto;
+            background: #000;
+        }
+
+        #recipe-canvas {
+            display: block;
+            width: 100%;
+            height: auto;
+            max-width: 100%;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+        }
+
+        #error-message {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            font-size: 24px;
+            z-index: 10000;
+            color: #ff4444;
+        }
+
+        #loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            font-size: 18px;
+            z-index: 10001;
+        }
+
+        @media print {
+            body * {
+                display: none !important;
+            }
+            body::before {
+                content: "Доступ запрещён";
+                display: block !important;
+                font-size: 24px;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="watermark-overlay"></div>
+    <div id="container">
+        <canvas id="recipe-canvas"></canvas>
+    </div>
+    <div id="error-message">Доступ запрещён</div>
+    <div id="loading">Загрузка...</div>
+
+    <script>
+        // ⚠️ Полная защита от скриншотов невозможна в WebApp. Реализована максимально возможная защита на уровне браузера.
+
+        const tg = window.Telegram?.WebApp;
+        if (!tg) {
+            document.body.innerHTML = '<div id="error-message" style="display:block;">Доступ запрещён</div>';
+            throw new Error('Not in Telegram WebApp');
+        }
+
+        tg.ready();
+        tg.expand();
+
+        const user = tg.initDataUnsafe?.user;
+        const userId = user?.id || 'unknown';
+        const username = user?.username || `user_${userId}`;
+        const currentTime = new Date().toLocaleString('ru-RU');
+
+        // Получение данных рецепта из initData или URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const recipeData = urlParams.get('data') ? JSON.parse(decodeURIComponent(urlParams.get('data'))) : {
+            name: 'Рецепт',
+            calories: 0,
+            proteins: 0,
+            fats: 0,
+            carbs: 0,
+            ingredients: ['Ингредиенты не загружены'],
+            instructions: ['Инструкции не загружены']
+        };
+
+        // Watermark генерация
+        function generateWatermark() {
+            const overlay = document.getElementById('watermark-overlay');
+            overlay.innerHTML = '';
+            const watermarkText = `${username} | ${userId} | ${currentTime}`;
+            const spacing = 200;
+            const rows = Math.ceil(window.innerHeight / spacing) + 2;
+            const cols = Math.ceil(window.innerWidth / spacing) + 2;
+
+            for (let i = -1; i < rows; i++) {
+                for (let j = -1; j < cols; j++) {
+                    const span = document.createElement('span');
+                    span.className = 'watermark-text';
+                    span.textContent = watermarkText;
+                    span.style.left = (j * spacing) + 'px';
+                    span.style.top = (i * spacing) + 'px';
+                    overlay.appendChild(span);
+                }
+            }
+        }
+
+        // Canvas рендеринг рецепта
+        function renderRecipe() {
+            const canvas = document.getElementById('recipe-canvas');
+            const ctx = canvas.getContext('2d');
+            const container = document.getElementById('container');
+            const maxWidth = Math.min(window.innerWidth - 40, 600);
+            
+            canvas.width = maxWidth;
+            canvas.height = 1;
+
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            ctx.textBaseline = 'top';
+            ctx.textAlign = 'left';
+
+            let y = 30;
+            const padding = 20;
+            const lineHeight = 28;
+            const sectionSpacing = 20;
+
+            // Название
+            ctx.font = 'bold 28px -apple-system';
+            const nameLines = wrapText(ctx, recipeData.name, maxWidth - padding * 2);
+            nameLines.forEach(line => {
+                ctx.fillText(line, padding, y);
+                y += lineHeight + 4;
+            });
+
+            y += sectionSpacing;
+
+            // КБЖУ
+            ctx.font = 'bold 20px -apple-system';
+            ctx.fillText('📊 КБЖУ', padding, y);
+            y += lineHeight + 10;
+
+            ctx.font = '18px -apple-system';
+            ctx.fillText(`🔥 Калории: ${recipeData.calories} ккал`, padding, y);
+            y += lineHeight;
+            ctx.fillText(`🥚 Белки: ${recipeData.proteins} г`, padding, y);
+            y += lineHeight;
+            ctx.fillText(`🧈 Жиры: ${recipeData.fats} г`, padding, y);
+            y += lineHeight;
+            ctx.fillText(`🍞 Углеводы: ${recipeData.carbs} г`, padding, y);
+
+            y += sectionSpacing * 2;
+
+            // Ингредиенты
+            ctx.font = 'bold 20px -apple-system';
+            ctx.fillText('🛒 Ингредиенты', padding, y);
+            y += lineHeight + 10;
+
+            ctx.font = '18px -apple-system';
+            const ingredients = Array.isArray(recipeData.ingredients) ? recipeData.ingredients : [recipeData.ingredients];
+            ingredients.forEach(ing => {
+                const lines = wrapText(ctx, `• ${ing}`, maxWidth - padding * 2);
+                lines.forEach(line => {
+                    ctx.fillText(line, padding + 10, y);
+                    y += lineHeight;
+                });
+            });
+
+            y += sectionSpacing * 2;
+
+            // Приготовление
+            ctx.font = 'bold 20px -apple-system';
+            ctx.fillText('👩🏽‍🍳 Приготовление', padding, y);
+            y += lineHeight + 10;
+
+            ctx.font = '18px -apple-system';
+            const instructions = Array.isArray(recipeData.instructions) ? recipeData.instructions : [recipeData.instructions];
+            instructions.forEach((inst, idx) => {
+                const text = `${idx + 1}. ${inst}`;
+                const lines = wrapText(ctx, text, maxWidth - padding * 2);
+                lines.forEach(line => {
+                    ctx.fillText(line, padding, y);
+                    y += lineHeight;
+                });
+                y += 8;
+            });
+
+            // Watermark на canvas
+            ctx.save();
+            ctx.globalAlpha = 0.05;
+            ctx.fillStyle = '#fff';
+            ctx.font = '12px -apple-system';
+            ctx.rotate(25 * Math.PI / 180);
+            const watermarkCanvas = `${username} | ${userId} | ${currentTime}`;
+            const watermarkSpacing = 150;
+            for (let i = -2; i < 10; i++) {
+                for (let j = -2; j < 10; j++) {
+                    ctx.fillText(watermarkCanvas, j * watermarkSpacing, i * watermarkSpacing);
+                }
+            }
+            ctx.restore();
+
+            canvas.height = y + padding;
+        }
+
+        function wrapText(ctx, text, maxWidth) {
+            const words = text.split(' ');
+            const lines = [];
+            let currentLine = '';
+
+            words.forEach(word => {
+                const testLine = currentLine + (currentLine ? ' ' : '') + word;
+                const metrics = ctx.measureText(testLine);
+                if (metrics.width > maxWidth && currentLine) {
+                    lines.push(currentLine);
+                    currentLine = word;
+                } else {
+                    currentLine = testLine;
+                }
+            });
+            if (currentLine) lines.push(currentLine);
+            return lines;
+        }
+
+        // Защита от копирования
+        document.addEventListener('copy', (e) => {
+            e.preventDefault();
+            e.clipboardData.setData('text/plain', '');
+            return false;
+        });
+
+        document.addEventListener('cut', (e) => {
+            e.preventDefault();
+            return false;
+        });
+
+        document.addEventListener('paste', (e) => {
+            e.preventDefault();
+            return false;
+        });
+
+        document.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            return false;
+        });
+
+        document.addEventListener('selectstart', (e) => {
+            e.preventDefault();
+            return false;
+        });
+
+        document.addEventListener('dragstart', (e) => {
+            e.preventDefault();
+            return false;
+        });
+
+        // Блокировка горячих клавиш
+        document.addEventListener('keydown', (e) => {
+            // Ctrl+C, Ctrl+U, Ctrl+S, Ctrl+P, Ctrl+A
+            if (e.ctrlKey && ['c', 'u', 's', 'p', 'a'].includes(e.key.toLowerCase())) {
+                e.preventDefault();
+                return false;
+            }
+            // F12, PrintScreen
+            if (e.key === 'F12' || e.keyCode === 44) {
+                e.preventDefault();
+                return false;
+            }
+            // DevTools shortcuts
+            if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && ['i', 'j', 'c'].includes(e.key.toLowerCase()))) {
+                e.preventDefault();
+                return false;
+            }
+        });
+
+        // Anti DevTools
+        let devToolsOpen = false;
+        function checkDevTools() {
+            const threshold = 160;
+            const widthDiff = window.outerWidth - window.innerWidth;
+            const heightDiff = window.outerHeight - window.innerHeight;
+
+            if (widthDiff > threshold || heightDiff > threshold) {
+                if (!devToolsOpen) {
+                    devToolsOpen = true;
+                    document.body.innerHTML = '<div id="error-message" style="display:block;">Доступ запрещён</div>';
+                }
+            } else {
+                devToolsOpen = false;
+            }
+        }
+
+        setInterval(checkDevTools, 500);
+
+        // Защита при потере фокуса
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                document.body.style.filter = 'blur(30px)';
+            } else {
+                document.body.style.filter = 'none';
+            }
+        });
+
+        // Защита от print
+        window.addEventListener('beforeprint', () => {
+            document.body.innerHTML = '<div style="font-size:24px;text-align:center;padding:50px;">Доступ запрещён</div>';
+        });
+
+        window.addEventListener('afterprint', () => {
+            location.reload();
+        });
+
+        // Защита от сохранения страницы
+        window.addEventListener('beforeunload', (e) => {
+            e.preventDefault();
+            e.returnValue = '';
+        });
+
+        // Инициализация
+        window.addEventListener('load', () => {
+            generateWatermark();
+            renderRecipe();
+            document.getElementById('loading').style.display = 'none';
+        });
+
+        window.addEventListener('resize', () => {
+            generateWatermark();
+            renderRecipe();
+        });
+
+        // Дополнительная защита от инспектирования
+        Object.defineProperty(window, 'devtools', {
+            get: function() {
+                return {
+                    open: function() {
+                        document.body.innerHTML = '<div id="error-message" style="display:block;">Доступ запрещён</div>';
+                    }
+                };
+            }
+        });
+
+        // Защита от консоли
+        const noop = () => {};
+        const methods = ['log', 'debug', 'info', 'warn', 'error', 'assert', 'clear', 'count', 'dir', 'dirxml', 'group', 'groupCollapsed', 'groupEnd', 'profile', 'profileEnd', 'table', 'time', 'timeEnd', 'timeStamp', 'trace'];
+        methods.forEach(method => {
+            console[method] = noop;
+        });
+    </script>
+</body>
+</html>

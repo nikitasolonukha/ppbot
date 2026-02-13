@@ -161,14 +161,67 @@
                 let decoded;
                 try {
                     // Пробуем декодировать base64
-                    decoded = atob(dataParam);
-                    debugInfo.innerHTML += '<br>✅ Base64 декодирован';
+                    // Убираем возможные пробелы и спецсимволы, которые могли добавиться при передаче
+                    const cleanData = dataParam.replace(/\s/g, '').replace(/[^A-Za-z0-9+/=]/g, '');
+                    decoded = atob(cleanData);
+                    debugInfo.innerHTML += '<br>✅ Base64 декодирован, длина: ' + decoded.length;
+                    
+                    // Проверяем, что декодированные данные похожи на JSON
+                    if (!decoded.trim().startsWith('{')) {
+                        throw new Error('Декодированные данные не являются JSON');
+                    }
                 } catch (e) {
+                    debugInfo.innerHTML += `<br>⚠️ Base64 ошибка: ${e.message}`;
                     // Если не base64, пробуем обычный URL decode (для обратной совместимости)
-                    decoded = decodeURIComponent(dataParam);
-                    debugInfo.innerHTML += '<br>⚠️ Использован URL decode';
+                    try {
+                        decoded = decodeURIComponent(dataParam);
+                        debugInfo.innerHTML += '<br>⚠️ Использован URL decode';
+                    } catch (e2) {
+                        debugInfo.innerHTML += `<br>❌ Ошибка декодирования: ${e2.message}`;
+                        throw new Error('Не удалось декодировать данные: ' + e2.message);
+                    }
                 }
-                recipeData = JSON.parse(decoded);
+                
+                // Парсим JSON (поддерживаем компактный формат с короткими ключами)
+                try {
+                    const parsed = JSON.parse(decoded);
+                    // Конвертируем компактный формат в полный
+                    recipeData = {
+                        name: parsed.n || parsed.name || 'Рецепт',
+                        calories: parsed.c !== undefined ? parsed.c : (parsed.calories || 0),
+                        proteins: parsed.p !== undefined ? parsed.p : (parsed.proteins || 0),
+                        fats: parsed.f !== undefined ? parsed.f : (parsed.fats || 0),
+                        carbs: parsed.cb !== undefined ? parsed.cb : (parsed.carbs || 0),
+                        ingredients: parsed.i || parsed.ingredients || [],
+                        instructions: parsed.ins || parsed.instructions || []
+                    };
+                    debugInfo.innerHTML += '<br>✅ JSON распарсен';
+                } catch (e) {
+                    debugInfo.innerHTML += `<br>❌ Ошибка парсинга JSON: ${e.message}`;
+                    debugInfo.innerHTML += `<br>Начало данных: ${decoded.substring(0, 100)}`;
+                    debugInfo.innerHTML += `<br>Конец данных: ${decoded.substring(decoded.length - 50)}`;
+                    // Пробуем исправить обрезанный JSON (добавляем закрывающие скобки)
+                    try {
+                        let fixed = decoded.trim();
+                        if (!fixed.endsWith('}')) {
+                            // Пробуем добавить закрывающие скобки
+                            const openBraces = (fixed.match(/\{/g) || []).length;
+                            const closeBraces = (fixed.match(/\}/g) || []).length;
+                            const missing = openBraces - closeBraces;
+                            if (missing > 0) {
+                                fixed += '}'.repeat(missing);
+                                debugInfo.innerHTML += '<br>⚠️ Попытка исправить обрезанный JSON';
+                                recipeData = JSON.parse(fixed);
+                            } else {
+                                throw e;
+                            }
+                        } else {
+                            throw e;
+                        }
+                    } catch (e2) {
+                        throw new Error('Ошибка парсинга JSON: ' + e.message);
+                    }
+                }
                 // Проверяем, что данные валидны
                 if (!recipeData.name || !Array.isArray(recipeData.ingredients)) {
                     throw new Error('Невалидные данные рецепта');
